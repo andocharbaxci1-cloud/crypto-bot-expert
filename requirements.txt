@@ -1,6 +1,6 @@
 ccxt
 pandas
-pandas_ta
+pandas-ta
 numpy
 requests
 Flask
