@@ -30,7 +30,7 @@ SYMBOLS = [
     'POL/USDT', 'LTC/USDT', 'BCH/USDT', 'ATOM/USDT', 'UNI/USDT'
 ]
 TIMEFRAMES = ['1h', '4h'] 
-SCALPING_TIMEFRAMES = ['15m']
+SCALPING_TIMEFRAMES = ['30m']
 
 exchange = ccxt.binance({
     'enableRateLimit': True,
@@ -478,7 +478,7 @@ def handle_command(chat_id, text):
                 if 'USDT' not in s: s += '/USDT'
                 send_action(chat_id, "typing")
                 send_message(chat_id, f"⚡ Scalping {s}...")
-                check_scalping_signals(s, '15m', is_manual=True, chat_id=chat_id)
+                check_scalping_signals(s, '30m', is_manual=True, chat_id=chat_id)
             else:
                 send_message(chat_id, "Usage: `/scalp SOL` or `scalp SOL`")
         
