@@ -524,17 +524,32 @@ def handle_command(chat_id, text):
         send_message(chat_id, f"❌ Error processing command: {e}")
 
 def poll_telegram():
-    luid = 0; log("Polling...")
+    local_token = TELEGRAM_BOT_TOKEN
+    local_ids = TELEGRAM_CHAT_IDS
+    log(f"Thread: poll_telegram started. Token exists: {bool(local_token)}")
+    luid = 0
     while True:
         try:
-            r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?timeout=10&offset={luid}", timeout=20).json()
+            url = f"https://api.telegram.org/bot{local_token}/getUpdates?timeout=10&offset={luid}"
+            r = requests.get(url, timeout=20).json()
             if r.get('ok'):
                 for u in r['result']:
                     luid = u['update_id']+1
                     if 'message' in u and 'text' in u['message']:
-                        cid = str(u['message']['chat']['id'])
-                        if cid in TELEGRAM_CHAT_IDS: COMMAND_EXECUTOR.submit(handle_command, cid, u['message']['text'])
-        except Exception as e: log(f"Poll error: {e}"); time.sleep(10)
+                        msg_obj = u['message']
+                        cid = str(msg_obj['chat']['id'])
+                        txt = msg_obj.get('text', "")
+                        log(f"Received msg from {cid}: {txt[:10]}...")
+                        if cid in local_ids:
+                            handle_command(cid, txt)
+                        else:
+                            log(f"Ignored msg from unauthorized ID: {cid}")
+            else:
+                log(f"Poll fail (not ok): {r}")
+                time.sleep(5)
+        except Exception as e:
+            log(f"Poll error: {e}")
+            time.sleep(10)
 
 def run_bot_logic():
     log("Bot logic thread started...")
