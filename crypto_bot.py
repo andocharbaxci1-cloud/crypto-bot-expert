@@ -202,6 +202,16 @@ def debug_env():
         "chat_ids": ids if ids != "MISSING" else "N/A",
         "proxy_set": purl != "NOT_SET"
     }
+
+@app.route('/check-token')
+def check_token():
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token: return {"ok": False, "error": "Token missing in env."}
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10).json()
+        return r
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 def run_keep_alive():
     # Use gunicorn in production, but keep this for local testing
     p = int(os.environ.get("PORT", 8080))
@@ -260,10 +270,16 @@ def monitor_active_trades():
         except: time.sleep(30)
 
 def get_data(symbol, tf, limit=300):
-    b = exchange.fetch_ohlcv(symbol, tf, limit=limit)
-    df = pd.DataFrame(b, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
+    try:
+        b = exchange.fetch_ohlcv(symbol, tf, limit=limit)
+        df = pd.DataFrame(b, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
+    except Exception as e:
+        if "418" in str(e) or "IP banned" in str(e):
+            log(f"⚠️ Binance IP Banned (418). Cooling down for 60s...")
+            time.sleep(60)
+        raise e
 
 def get_btc_global_trend():
     try:
