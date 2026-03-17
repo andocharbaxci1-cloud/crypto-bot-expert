@@ -190,6 +190,19 @@ def view_logs():
 def test_msg():
     broadcast("🔔 Test message from Render server.")
     return "Attempted to send broadcast."
+
+@app.route('/debug-env')
+def debug_env():
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "MISSING")
+    ids = os.getenv("TELEGRAM_CHAT_IDS", "MISSING")
+    purl = os.getenv("PROXY_URL", "NOT_SET")
+    return {
+        "token_len": len(token),
+        "token_prefix": token[:5] if token != "MISSING" else "N/A",
+        "chat_ids_len": len(ids),
+        "chat_ids": ids if ids != "MISSING" else "N/A",
+        "proxy_set": purl != "NOT_SET"
+    }
 def run_keep_alive():
     # Use gunicorn in production, but keep this for local testing
     p = int(os.environ.get("PORT", 8080))
