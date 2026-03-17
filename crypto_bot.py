@@ -28,8 +28,17 @@ SCALPING_TIMEFRAMES = ['15m']
 
 exchange = ccxt.binance({
     'enableRateLimit': True,
+    'adjustForTimeDifference': True,
     'options': {
         'defaultType': 'future'
+    },
+    'urls': {
+        'api': {
+            'public': 'https://api1.binance.com/api/v3',
+            'private': 'https://api1.binance.com/api/v3',
+            'fapiPublic': 'https://fapi.binance.com/fapi/v1',
+            'fapiPrivate': 'https://fapi.binance.com/fapi/v1',
+        }
     }
 })
 
