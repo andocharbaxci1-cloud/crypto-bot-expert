@@ -147,7 +147,13 @@ def get_high_volume_node(df, lookback=100, bins=20):
         return max(vp, key=vp.get)
     except: return 0
 
-def log(msg): print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+def log(msg):
+    t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    m = f"[{t}] {msg}"
+    print(m)
+    try:
+        with open('bot.log', 'a') as f: f.write(m + "\n")
+    except: pass
 
 def send_message(chat_id, text):
     try:
@@ -171,6 +177,19 @@ def home(): return "Bot is alive!"
 
 @app.route('/health')
 def health(): return {"status": "ok", "uptime": str(datetime.now() - BOT_START_TIME)}
+
+@app.route('/logs')
+def view_logs():
+    try:
+        with open('bot.log', 'r') as f:
+            lines = f.readlines()
+            return "<pre>" + "".join(lines[-50:]) + "</pre>"
+    except: return "No logs found."
+
+@app.route('/test-msg')
+def test_msg():
+    broadcast("🔔 Test message from Render server.")
+    return "Attempted to send broadcast."
 def run_keep_alive():
     # Use gunicorn in production, but keep this for local testing
     p = int(os.environ.get("PORT", 8080))
@@ -411,6 +430,8 @@ def check_scalping_signals(symbol, timeframe, btc_trend="NEUTRAL", is_manual=Fal
                 if is_manual: send_message(chat_id, f"📊 Scalp {symbol}: {wr:.1f}% Winrate is too low.")
                 return
             log(f"Scalp Signal Found: {symbol} {side}")
+            entry = close
+            sl, tp = (entry-(atr*1.2) if side=='BUY' else entry+(atr*1.2)), (entry+(atr*2.5) if side=='BUY' else entry-(atr*2.5))
             tr = btc_trend; fr = get_funding_rate(symbol); move_sl_rule = "🛡 ԿԱՆՈՆ: 0.5% շահույթի դեպքում SL-ը տեղափոխիր Entry!"
             move_pct = abs(((tp - entry)/entry)*100)
             
