@@ -10,13 +10,19 @@ import json
 from flask import Flask
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dotenv import load_dotenv
+
+# Բեռնել .env ֆայլը
+load_dotenv()
 
 # ================= ԳԼՈԲԱԼ ՓՈՓՈԽԱԿԱՆՆԵՐ =================
 BOT_START_TIME = datetime.now()
 COMMAND_EXECUTOR = ThreadPoolExecutor(max_workers=10) 
 # ================= ԿԱՐԳԱՎՈՐՈՒՄՆԵՐ =================
-TELEGRAM_BOT_TOKEN = "8766650445:AAHC_xWUlHfD4qJHg3xwpGu1h60zyX_5d6w"
-TELEGRAM_CHAT_IDS = ["1459989629", "6600003987"]
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Չատի ID-ները ստորակետով բաժանված տեքստից վերածում ենք լիստի
+_ids = os.getenv("TELEGRAM_CHAT_IDS", "")
+TELEGRAM_CHAT_IDS = [i.strip() for i in _ids.split(",") if i.strip()]
 
 SYMBOLS = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
@@ -158,7 +164,11 @@ def broadcast(text):
 app = Flask(__name__)
 @app.route('/')
 def home(): return "Bot is alive!"
+
+@app.route('/health')
+def health(): return {"status": "ok", "uptime": str(datetime.now() - BOT_START_TIME)}
 def run_keep_alive():
+    # Use gunicorn in production, but keep this for local testing
     p = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=p)
 
@@ -241,7 +251,7 @@ def get_historical_winrate(df, mode='indicator'):
     bw, bt, sw, st = 0, 0, 0, 0
     # Optimize: start from the end and check fewer candles to avoid long hangs
     total_len = len(df)
-    check_limit = 300 # Only check last 300 candles for historical winrate
+    check_limit = 500 # Increased lookback for better stats
     sidx = max(50, total_len - check_limit)
     
     for i in range(sidx, total_len-20):
@@ -309,34 +319,67 @@ def check_signals(symbol, timeframe, btc_trend="NEUTRAL", fng_data=None, is_manu
         last, prev = df.iloc[-2], df.iloc[-3]; close, e20, e50, e200 = last['close'], last['EMA_20'], last['EMA_50'], last['EMA_200']
         rsi, mac, macs, atr = last['RSI_14'], last['MACD_12_26_9'], last['MACDs_12_26_9'], last['ATRr_14']
         sig, side, stype = None, None, ""; gbt = btc_trend
-        if (e20 > e50 > e200) and (last['low'] <= e20*1.005) and (mac > macs) and (rsi > prev['RSI_14']):
-            if gbt == "DOWNTREND":
-                if is_manual: send_message(chat_id, f"⚠️ {symbol} LONG blocked (BTC Downtrend)")
-            else: sig = "BUY 🟢 (LONG Trend)"; side = "BUY"; stype = f"Pullback + {gbt}"; entry = close; sl, tp = entry-(atr*1.5), entry+(atr*3.0)
-        elif (e20 < e50 < e200) and (last['high'] >= e20*0.995) and (mac < macs) and (rsi < prev['RSI_14']):
-            if gbt == "UPTREND":
-                if is_manual: send_message(chat_id, f"⚠️ {symbol} SHORT blocked (BTC Uptrend)")
-            else: sig = "SELL 🔴 (SHORT Trend)"; side = "SELL"; stype = f"Pullback + {gbt}"; entry = close; sl, tp = entry+(atr*1.5), entry-(atr*3.0)
+        if (e20 > e50) and (last['low'] <= e20*1.005) and (mac > macs) and (rsi > prev['RSI_14']):
+            sig = "BUY 🟢 (Trend Pullback)"; side = "BUY"; stype = f"Pullback + {gbt}"; entry = close; sl, tp = entry-(atr*1.5), entry+(atr*3.0)
+        elif (e20 < e50) and (last['high'] >= e20*0.995) and (mac < macs) and (rsi < prev['RSI_14']):
+            sig = "SELL 🔴 (Trend Pullback)"; side = "SELL"; stype = f"Pullback + {gbt}"; entry = close; sl, tp = entry+(atr*1.5), entry-(atr*3.0)
+        
         if not sig:
             isbr, rlvl, rtyp = find_breakout_retest(df)
-            if isbr and gbt != "DOWNTREND":
-                sig = "BUY 🟢 (LONG)"; side = "BUY"; stype = f"Action ({rtyp}) + {gbt}"; entry, sl, tp = close, close-(atr*1.2), close+(atr*3.5)
+            if isbr:
+                sig = "ACTION ⚡ (Breakout)"; side = "BUY" if close > rlvl else "SELL"; stype = f"Breakout ({rtyp})"; entry, sl, tp = close, close-(atr*1.2), close+(atr*3.5)
         rh, rl, f382, f618 = get_fibonacci_levels(df); bwr, bt, swr, st = get_historical_winrate(df); fv, fs = fng_data if fng_data else (None, "Unknown"); walls = check_order_book_walls(symbol, close)
         if sig:
             wr = bwr if side == 'BUY' else swr
-            if wr < 50.0:
+            if wr < 45.0: # Relaxed winrate from 50 to 45
                 if is_manual: send_message(chat_id, f"⚠️ {symbol} low wr: {wr:.1f}%")
                 return
+            log(f"Signal Found: {symbol} {side} WR:{wr}%")
             if not is_volume_significant(df):
                 if is_manual: send_message(chat_id, f"⚠️ {symbol} low volume")
                 return
             tp1, tp2 = (entry+(atr*1.2) if side=='BUY' else entry-(atr*1.2)), tp
-            msg = f"🔔 *SIGNAL: {symbol}* ({timeframe})\n🔥 {sig}\n🧠 `{stype}`\n💵 Entry: `{entry:.4f}`\n🎯 TP1: `{tp1:.4f}`\n🎯 TP2: `{tp2:.4f}`\n🛑 SL: `{sl:.4f}`\n📈 WR: `{wr:.1f}%`\n" + walls
+            tr = btc_trend; fr = get_funding_rate(symbol); move_sl_rule = "🛡 ԿԱՆՈՆ: TP1-ին հասնելիս SL-ը տեղափոխիր Entry!"
+            move_pct = abs(((tp2 - entry)/entry)*100)
+            
+            msg = (
+                f"🎯 Սպասվող Շարժը: {move_pct:.1f}%+\n"
+                f"🔥 Գործարք: {side} 🟢 ({'LONG' if side=='BUY' else 'SHORT'} TREND)\n"
+                f"🌐 BTC Տրենդ: {tr}\n"
+                f"💵 Մուտք (Entry): `{entry:.4f}`\n\n"
+                f"✅ Take Profit 1: `{tp1:.4f}`\n"
+                f"✅ Take Profit 2: `{tp2:.4f}`\n"
+                f"🛑 Stop Loss: `{sl:.4f}`\n\n"
+                f"{move_sl_rule}\n\n"
+                f"📈 Win-Rate: `{wr:.1f}%` (հիմնված վերջին տվյալների վրա)\n"
+                f"🌐 Funding: `{fr:.4f}%` ✅\n\n"
+                f"🧠 Ինչու՞: {stype} ({timeframe} mode)։\n"
+                f"{walls}"
+            )
             broadcast(msg)
             if is_manual and chat_id not in TELEGRAM_CHAT_IDS: send_message(chat_id, msg)
             update_signal_history(symbol, timeframe, side); record_signal(symbol, timeframe, side); add_active_trade(symbol, entry, tp1, tp2, sl, side)
         elif is_manual:
-            msg = f"📊 *Analysis: {symbol}* ({timeframe})\nNo clear entry.\n" + walls
+            rh, rl, f382, f618 = get_fibonacci_levels(df)
+            fv, fs = fng_data if fng_data else (None, "Անհայտ")
+            tr = btc_trend
+            trend_str = "Աճող 🟢" if last['EMA_20'] > last['EMA_50'] else "Նվազող 🔴"
+            
+            msg = (
+                f"📊 Անալիզ: {symbol} ({timeframe})\n\n"
+                f"Գործարքի հստակ ՄՈՒՏՔԱՅԻՆ ազդանշան չկա այս պահին։ Համբերեք...\n\n"
+                f"📉 Ինդիկատորներ:\n"
+                f"• Գինը Հիմա: `{close:.4f}`\n"
+                f"• RSI: `{rsi:.1f}`\n"
+                f"• Տրենդ: {trend_str}\n\n"
+                f"📏 Դիմադրություն և Աջակցություն:\n"
+                f"• Դիմադրություն (Max High): `{rh:.4f}`\n"
+                f"• Ոսկե Fibo (0.618): `{f618:.4f}`\n"
+                f"• Աջակցություն (Min Low): `{rl:.4f}`\n\n"
+                f"🧠 Շուկայի հոգեբանություն: {fv if fv else 'None'}/100 - {fs}\n"
+                f"🌐 BTC Գլոբալ Տրենդ (4h): {tr}\n\n"
+                f"{walls}"
+            )
             send_message(chat_id, msg)
     except Exception as e:
         log(f"Error {symbol}: {e}")
@@ -363,11 +406,27 @@ def check_scalping_signals(symbol, timeframe, btc_trend="NEUTRAL", is_manual=Fal
             bwr, bt, swr, st = get_historical_winrate(df, mode='scalp'); wr = bwr if side == 'BUY' else swr
             if wr < 50.0: return
             tp1, tp2 = (entry*1.004 if side=='BUY' else entry*0.996), tp
-            msg = f"⚡ *SCALP: {symbol}* ({timeframe})\n🔥 {sig}\n💵 Entry: `{entry:.4f}`\n🎯 TP1: `{tp1:.4f}`\n🎯 TP2: `{tp2:.4f}`\n🛑 SL: `{sl:.4f}`\n📈 WR: `{wr:.1f}%`"
+            tr = btc_trend; fr = get_funding_rate(symbol); move_sl_rule = "🛡 ԿԱՆՈՆ: TP1-ին հասնելիս SL-ը տեղափոխիր Entry!"
+            move_pct = abs(((tp2 - entry)/entry)*100)
+            
+            msg = (
+                f"🎯 Սպասվող Շարժը: {move_pct:.1f}%+\n"
+                f"🔥 Գործարք: {side} 🟢 ({'LONG' if side=='BUY' else 'SHORT'} SCALP)\n"
+                f"🌐 BTC Տրենդ: {tr}\n"
+                f"💵 Մուտք (Entry): `{entry:.4f}`\n\n"
+                f"✅ Take Profit 1: `{tp1:.4f}`\n"
+                f"✅ Take Profit 2: `{tp2:.4f}`\n"
+                f"🛑 Stop Loss: `{sl:.4f}`\n\n"
+                f"{move_sl_rule}\n\n"
+                f"📈 Win-Rate: `{wr:.1f}%` (հիմնված վերջին տվյալների վրա)\n"
+                f"🌐 Funding: `{fr:.4f}%` ✅\n\n"
+                f"🧠 Ինչու՞: Bollinger Band ցատկ & RSI շրջադարձ (Scalp mode)։"
+            )
             broadcast(msg)
             if is_manual and chat_id not in TELEGRAM_CHAT_IDS: send_message(chat_id, msg)
             record_signal(symbol, timeframe, side)
-        elif is_manual: send_message(chat_id, f"📊 Scalp {symbol}: No signal")
+        elif is_manual: 
+            send_message(chat_id, f"📊 Scalp {symbol}: Հստակ ազդանշան չկա այս պահին։")
     except Exception as e:
         log(f"Scalp error {symbol}: {e}")
         if is_manual: send_message(chat_id, f"❌ Scalp Error: {e}")
@@ -440,10 +499,8 @@ def poll_telegram():
                         if cid in TELEGRAM_CHAT_IDS: COMMAND_EXECUTOR.submit(handle_command, cid, u['message']['text'])
         except Exception as e: log(f"Poll error: {e}"); time.sleep(10)
 
-if __name__ == "__main__":
-    os.system('cls' if os.name == 'nt' else 'clear'); log("Starting...")
-    threading.Thread(target=run_keep_alive, daemon=True).start(); threading.Thread(target=poll_telegram, daemon=True).start(); threading.Thread(target=monitor_active_trades, daemon=True).start()
-    broadcast("🤖 *CryptoBot EXPERT Online*\n/status, /analyze SOL, /scalp SOL")
+def run_bot_logic():
+    log("Bot logic thread started...")
     la, lp, ls, lr = 0, 0, 0, time.time()
     while True:
         try:
@@ -460,4 +517,21 @@ if __name__ == "__main__":
                 la = cur
             if cur-lr >= 86400: send_daily_report(); lr = cur
             time.sleep(10)
-        except KeyboardInterrupt: break
+        except Exception as e:
+            log(f"Main loop error: {e}")
+            time.sleep(30)
+
+def start_bot():
+    log("Starting background threads...")
+    threading.Thread(target=poll_telegram, daemon=True).start()
+    threading.Thread(target=monitor_active_trades, daemon=True).start()
+    threading.Thread(target=run_bot_logic, daemon=True).start()
+    broadcast("🤖 *CryptoBot EXPERT Online*\n/status, /analyze SOL, /scalp SOL")
+
+# Միացնում ենք բոտը հենց մոդուլը բեռնվում է (Gunicorn-ի համար)
+if not os.environ.get("WERKZEUG_RUN_MAIN"): # Խուսափել կրկնակի միացումից Flask debug mode-ում
+    start_bot()
+
+if __name__ == "__main__":
+    os.system('cls' if os.name == 'nt' else 'clear'); log("Starting manually...")
+    run_keep_alive()

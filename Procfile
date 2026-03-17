@@ -1,1 +1,1 @@
-web: python crypto_bot.py
+web: gunicorn --bind 0.0.0.0:$PORT crypto_bot:app
