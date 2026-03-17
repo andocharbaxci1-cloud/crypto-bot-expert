@@ -333,15 +333,13 @@ def check_signals(symbol, timeframe, btc_trend="NEUTRAL", fng_data=None, is_manu
             if isbr:
                 sig = "ACTION ⚡ (Breakout)"; side = "BUY" if close > rlvl else "SELL"; stype = f"Breakout ({rtyp})"; entry, sl, tp = close, close-(atr*1.2), close+(atr*3.5)
         rh, rl, f382, f618 = get_fibonacci_levels(df); bwr, bt, swr, st = get_historical_winrate(df); fv, fs = fng_data if fng_data else (None, "Unknown"); walls = check_order_book_walls(symbol, close)
-        if sig:
-            wr = bwr if side == 'BUY' else swr
-            if wr < 45.0: # Relaxed winrate from 50 to 45
-                if is_manual: send_message(chat_id, f"⚠️ {symbol} low wr: {wr:.1f}%")
-                return
+        wr = bwr if side == 'BUY' else swr
+        valid_sig = sig and (wr >= 45.0) and is_volume_significant(df)
+        
+        if valid_sig:
             log(f"Signal Found: {symbol} {side} WR:{wr}%")
-            if not is_volume_significant(df):
-                if is_manual: send_message(chat_id, f"⚠️ {symbol} low volume")
-                return
+            entry = close
+            sl, tp = (entry-(atr*1.5) if side=='BUY' else entry+(atr*1.5)), (entry+(atr*3.0) if side=='BUY' else entry-(atr*3.0))
             tp1, tp2 = (entry+(atr*1.2) if side=='BUY' else entry-(atr*1.2)), tp
             tr = btc_trend; fr = get_funding_rate(symbol); move_sl_rule = "🛡 ԿԱՆՈՆ: TP1-ին հասնելիս SL-ը տեղափոխիր Entry!"
             move_pct = abs(((tp2 - entry)/entry)*100)
@@ -405,30 +403,32 @@ def check_scalping_signals(symbol, timeframe, btc_trend="NEUTRAL", is_manual=Fal
             if btc_trend != "DOWNTREND" and close >= ema50: sig, side, entry, sl, tp = "BUY 🟢 (SCALP)", "BUY", close, close*0.992, close*1.008
         elif (last['high'] >= ub) and (rsi < prev['RSI_14'] and rsi > 55):
             if btc_trend != "UPTREND" and close <= ema50: sig, side, entry, sl, tp = "SELL 🔴 (SCALP)", "SELL", close, close*1.008, close*0.992
-        if sig:
-            if not is_volume_significant(df): return
+        valid_sig = sig and is_volume_significant(df)
+        
+        if valid_sig:
             bwr, bt, swr, st = get_historical_winrate(df, mode='scalp'); wr = bwr if side == 'BUY' else swr
-            if wr < 50.0: return
-            tp1, tp2 = (entry*1.004 if side=='BUY' else entry*0.996), tp
-            tr = btc_trend; fr = get_funding_rate(symbol); move_sl_rule = "🛡 ԿԱՆՈՆ: TP1-ին հասնելիս SL-ը տեղափոխիր Entry!"
-            move_pct = abs(((tp2 - entry)/entry)*100)
+            if wr < 45.0:
+                if is_manual: send_message(chat_id, f"📊 Scalp {symbol}: {wr:.1f}% Winrate is too low.")
+                return
+            log(f"Scalp Signal Found: {symbol} {side}")
+            tr = btc_trend; fr = get_funding_rate(symbol); move_sl_rule = "🛡 ԿԱՆՈՆ: 0.5% շահույթի դեպքում SL-ը տեղափոխիր Entry!"
+            move_pct = abs(((tp - entry)/entry)*100)
             
             msg = (
-                f"🎯 Սպասվող Շարժը: {move_pct:.1f}%+\n"
-                f"🔥 Գործարք: {side} 🟢 ({'LONG' if side=='BUY' else 'SHORT'} SCALP)\n"
-                f"🌐 BTC Տրենդ: {tr}\n"
-                f"💵 Մուտք (Entry): `{entry:.4f}`\n\n"
-                f"✅ Take Profit 1: `{tp1:.4f}`\n"
-                f"✅ Take Profit 2: `{tp2:.4f}`\n"
+                f"⚡ SCALPING: {side} 🟢 ({symbol})\n"
+                f"🎯 Սպասվող Շարժը: {move_pct:.1f}%+\n\n"
+                f"💵 Մուտք (Entry): `{entry:.4f}`\n"
+                f"✅ Take Profit: `{tp:.4f}`\n"
                 f"🛑 Stop Loss: `{sl:.4f}`\n\n"
                 f"{move_sl_rule}\n\n"
-                f"📈 Win-Rate: `{wr:.1f}%` (հիմնված վերջին տվյալների վրա)\n"
-                f"🌐 Funding: `{fr:.4f}%` ✅\n\n"
-                f"🧠 Ինչու՞: Bollinger Band ցատկ & RSI շրջադարձ (Scalp mode)։"
+                f"📈 Win-Rate: `{wr:.1f}%`\n"
+                f"🧠 Ռեժիմ: {timeframe} Scalping\n"
+                f"🌐 Funding: `{fr:.4f}%` ✅\n"
+                f"🌐 BTC Տրենդ: {tr}\n"
             )
             broadcast(msg)
             if is_manual and chat_id not in TELEGRAM_CHAT_IDS: send_message(chat_id, msg)
-            record_signal(symbol, timeframe, side)
+            update_signal_history(symbol, timeframe, side); record_signal(symbol, timeframe, side)
         elif is_manual: 
             send_message(chat_id, f"📊 Scalp {symbol}: Հստակ ազդանշան չկա այս պահին։")
     except Exception as e:
