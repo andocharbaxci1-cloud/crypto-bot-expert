@@ -373,16 +373,16 @@ def check_signals(symbol, timeframe, btc_trend="NEUTRAL", fng_data=None, is_manu
                 f"📊 Անալիզ: {symbol} ({timeframe})\n\n"
                 f"Գործարքի հստակ ՄՈՒՏՔԱՅԻՆ ազդանշան չկա այս պահին։ Համբերեք...\n\n"
                 f"📉 Ինդիկատորներ:\n"
-                f"• Գինը Հիմա: `{close:.4f}`\n"
-                f"• RSI: `{rsi:.1f}`\n"
+                f"• Գինը Հիմա: {close:.4f}\n"
+                f"• RSI: {rsi:.1f}\n"
                 f"• Տրենդ: {trend_str}\n\n"
                 f"📏 Դիմադրություն և Աջակցություն:\n"
-                f"• Դիմադրություն (Max High): `{rh:.4f}`\n"
-                f"• Ոսկե Fibo (0.618): `{f618:.4f}`\n"
-                f"• Աջակցություն (Min Low): `{rl:.4f}`\n\n"
+                f"• Դիմադրություն (Max High): {rh:.4f}\n"
+                f"• Ոսկե Fibo (0.618): {f618:.4f}\n"
+                f"• Աջակցություն (Min Low): {rl:.4f}\n\n"
                 f"🧠 Շուկայի հոգեբանություն: {fv if fv else 'None'}/100 - {fs}\n"
                 f"🌐 BTC Գլոբալ Տրենդ (4h): {tr}\n\n"
-                f"{walls}"
+                f"{walls if walls.strip() else 'No large walls.'}"
             )
             send_message(chat_id, msg)
     except Exception as e:
