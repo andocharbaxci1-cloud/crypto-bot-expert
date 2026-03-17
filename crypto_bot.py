@@ -35,10 +35,14 @@ SCALPING_TIMEFRAMES = ['15m']
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'adjustForTimeDifference': True,
-    'timeout': 20000, # 20 seconds timeout
+    'timeout': 30000,
     'options': {
         'defaultType': 'future'
     },
+    'proxies': {
+        'http': os.getenv('PROXY_URL'),
+        'https': os.getenv('PROXY_URL'),
+    } if os.getenv('PROXY_URL') else None,
     'urls': {
         'api': {
             'public': 'https://api1.binance.com/api/v3',
@@ -505,18 +509,18 @@ def run_bot_logic():
     while True:
         try:
             cur = time.time()
-            if cur-lp >= 300: check_pump_dump(); lp = cur
-            if cur-ls >= 300:
+            if cur-lp >= 600: check_pump_dump(); lp = cur # Increased from 300 to 600
+            if cur-ls >= 600: # Increased from 300 to 600
                 for tf in SCALPING_TIMEFRAMES:
                     with ThreadPoolExecutor(max_workers=5) as ex: [ex.submit(check_scalping_signals, s, tf) for s in SYMBOLS]
                 ls = cur
-            if cur-la >= 900:
+            if cur-la >= 1200: # Increased from 900 to 1200
                 tr = get_btc_global_trend(); fng = get_fear_and_greed_index()
                 for tf in TIMEFRAMES:
                     with ThreadPoolExecutor(max_workers=5) as ex: [ex.submit(check_signals, s, tf, tr, fng) for s in SYMBOLS]
                 la = cur
             if cur-lr >= 86400: send_daily_report(); lr = cur
-            time.sleep(10)
+            time.sleep(20) # Increased from 10 to 20
         except Exception as e:
             log(f"Main loop error: {e}")
             time.sleep(30)
