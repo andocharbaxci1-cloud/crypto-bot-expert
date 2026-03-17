@@ -595,7 +595,9 @@ def start_bot():
         threading.Thread(target=poll_telegram, daemon=True).start()
         threading.Thread(target=monitor_active_trades, daemon=True).start()
         threading.Thread(target=run_bot_logic, daemon=True).start()
+        log("All threads started. Attempting broadcast...")
         broadcast("🤖 *CryptoBot EXPERT Online*\n/status, /analyze SOL, /scalp SOL")
+        log("Broadcast sent.")
     except Exception as e:
         log(f"Startup error: {e}")
 
