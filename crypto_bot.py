@@ -368,7 +368,7 @@ def check_signals(symbol, timeframe, btc_trend="NEUTRAL", fng_data=None, is_manu
             trend_str = "Աճող 🟢" if last['EMA_20'] > last['EMA_50'] else "Նվազող 🔴"
             
             msg = (
-                f"📊 Անալիզ: {symbol} ({timeframe})\n\n"
+                f"📊 Անալիզ: {symbol} ({timeframe}) ✅\n\n"
                 f"Գործարքի հստակ ՄՈՒՏՔԱՅԻՆ ազդանշան չկա այս պահին։ Համբերեք...\n\n"
                 f"📉 Ինդիկատորներ:\n"
                 f"• Գինը Հիմա: {close:.4f}\n"
