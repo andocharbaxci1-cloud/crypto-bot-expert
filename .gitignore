@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.env
+bot_stats.json
+active_trades.json
+*.log
