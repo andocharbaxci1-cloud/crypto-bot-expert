@@ -29,6 +29,7 @@ SCALPING_TIMEFRAMES = ['15m']
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'adjustForTimeDifference': True,
+    'timeout': 20000, # 20 seconds timeout
     'options': {
         'defaultType': 'future'
     },
@@ -144,6 +145,12 @@ def send_message(chat_id, text):
         requests.post(url, json={'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}, timeout=15)
     except Exception as e: log(f"Error sending msg: {e}")
 
+def send_action(chat_id, action="typing"):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendChatAction"
+        requests.post(url, json={'chat_id': chat_id, 'action': action}, timeout=5)
+    except: pass
+
 def broadcast(text):
     for cid in TELEGRAM_CHAT_IDS:
         if cid: send_message(cid, text)
@@ -231,27 +238,46 @@ def analyze_data(df):
     return df
 
 def get_historical_winrate(df, mode='indicator'):
-    bw, bt, sw, st = 0, 0, 0, 0; sidx = max(50, int(len(df)*0.1))
-    for i in range(sidx, len(df)-50):
+    bw, bt, sw, st = 0, 0, 0, 0
+    # Optimize: start from the end and check fewer candles to avoid long hangs
+    total_len = len(df)
+    check_limit = 300 # Only check last 300 candles for historical winrate
+    sidx = max(50, total_len - check_limit)
+    
+    for i in range(sidx, total_len-20):
         if 'EMA_200' not in df.columns or pd.isna(df['EMA_200'].iloc[i]): continue
-        c = df['close'].iloc[i]; e20 = df.get('EMA_20', df['EMA_50']).iloc[i]; e50 = df['EMA_50'].iloc[i]; e200 = df['EMA_200'].iloc[i]
-        rs = df['RSI_14'].iloc[i]; mac = df['MACD_12_26_9'].iloc[i]; macs = df['MACDs_12_26_9'].iloc[i]; at = df['ATRr_14'].iloc[i]
-        lb, ub = df['BBL_20_2.0_2.0'].iloc[i], df['BBU_20_2.0_2.0'].iloc[i]; low, high = df['low'].iloc[i], df['high'].iloc[i]; prs = df['RSI_14'].iloc[i-1]
+        c = df['close'].iloc[i]
+        e20 = df.get('EMA_20', df['EMA_50']).iloc[i]
+        e50 = df['EMA_50'].iloc[i]
+        e200 = df['EMA_200'].iloc[i]
+        rs = df['RSI_14'].iloc[i]
+        mac = df['MACD_12_26_9'].iloc[i]
+        macs = df['MACDs_12_26_9'].iloc[i]
+        at = df['ATRr_14'].iloc[i]
+        lb, ub = df['BBL_20_2.0_2.0'].iloc[i], df['BBU_20_2.0_2.0'].iloc[i]
+        low, high = df['low'].iloc[i], df['high'].iloc[i]
+        prs = df['RSI_14'].iloc[i-1]
+        
         sb, ss = False, False
         if mode == 'indicator':
-            if (e20 > e50 > e200) and (low <= e20*1.005) and (mac > macs) and (rs > prs): sb = True; tp, sl = c+(at*3), c-(at*1.5)
-            elif (e20 < e50 < e200) and (high >= e20*0.995) and (mac < macs) and (rs < prs): ss = True; tp, sl = c-(at*3), c+(at*1.5)
+            if (e20 > e50 > e200) and (low <= e20*1.005) and (mac > macs) and (rs > prs): 
+                sb = True; tp, sl = c+(at*3), c-(at*1.5)
+            elif (e20 < e50 < e200) and (high >= e20*0.995) and (mac < macs) and (rs < prs): 
+                ss = True; tp, sl = c-(at*3), c+(at*1.5)
         elif mode == 'scalp':
-            if (low <= lb) and (rs > prs and rs < 45): sb = True; tp, sl = c*1.008, c*0.992
-            elif (high >= ub) and (rs < prs and rs > 55): ss = True; tp, sl = c*0.992, c*1.008
+            if (low <= lb) and (rs > prs and rs < 45): 
+                sb = True; tp, sl = c*1.008, c*0.992
+            elif (high >= ub) and (rs < prs and rs > 55): 
+                ss = True; tp, sl = c*0.992, c*1.008
+                
         if sb:
             bt += 1
-            for j in range(i+1, min(i+51, len(df))):
+            for j in range(i+1, min(i+51, total_len)):
                 if df['high'].iloc[j] >= tp: bw += 1; break
                 elif df['low'].iloc[j] <= sl: break
         elif ss:
             st += 1
-            for j in range(i+1, min(i+51, len(df))):
+            for j in range(i+1, min(i+51, total_len)):
                 if df['low'].iloc[j] <= tp: sw += 1; break
                 elif df['high'].iloc[j] >= sl: break
     return (bw/(bt+0.001)*100), bt, (sw/(st+0.001)*100), st
@@ -362,22 +388,44 @@ def check_pump_dump():
 
 def handle_command(chat_id, text):
     try:
-        if text == '/status':
-            fv, fs = get_fear_and_greed_index(); upt = datetime.now() - BOT_START_TIME; d, s = upt.days, upt.seconds; h, m = s//3600, (s%3600)//60
-            send_message(chat_id, f"✅ *Active*\n⏱ Uptime: `{d}d {h}h {m}m`\n📊 Assets: {len(SYMBOLS)}\n🧠 Market: {fv} - {fs}")
-        elif text.startswith('/analyze'):
-            s = text.split()[1].upper() if len(text.split())>1 else None
+        text = text.lower().strip()
+        if text == '/status' or text == 'status':
+            send_action(chat_id, "typing")
+            fv, fs = get_fear_and_greed_index()
+            upt = datetime.now() - BOT_START_TIME
+            d, s = upt.days, upt.seconds
+            h, m = s//3600, (s%3600)//60
+            send_message(chat_id, f"✅ *Bot is Active*\n⏱ Uptime: `{d}d {h}h {m}m`\n📊 Assets: {len(SYMBOLS)}\n🧠 Market: {fv} - {fs}")
+            
+        elif text.startswith('/analyze') or text.startswith('analyze'):
+            parts = text.split()
+            s = parts[1].upper() if len(parts) > 1 else None
             if s:
                 if 'USDT' not in s: s += '/USDT'
-                send_message(chat_id, f"⏳ Analyzing {s}..."); check_signals(s, '1h', is_manual=True, chat_id=chat_id)
-            else: send_message(chat_id, "Usage: /analyze SOL")
-        elif text.startswith('/scalp'):
-            s = text.split()[1].upper() if len(text.split())>1 else None
+                send_action(chat_id, "typing")
+                send_message(chat_id, f"⏳ Analyzing {s}...")
+                check_signals(s, '1h', is_manual=True, chat_id=chat_id)
+            else:
+                send_message(chat_id, "Usage: `/analyze SOL` or `analyze SOL`")
+                
+        elif text.startswith('/scalp') or text.startswith('scalp'):
+            parts = text.split()
+            s = parts[1].upper() if len(parts) > 1 else None
             if s:
                 if 'USDT' not in s: s += '/USDT'
-                send_message(chat_id, f"⚡ Scalping {s}..."); check_scalping_signals(s, '15m', is_manual=True, chat_id=chat_id)
-            else: send_message(chat_id, "Usage: /scalp SOL")
-    except Exception as e: log(f"Cmd error: {e}")
+                send_action(chat_id, "typing")
+                send_message(chat_id, f"⚡ Scalping {s}...")
+                check_scalping_signals(s, '15m', is_manual=True, chat_id=chat_id)
+            else:
+                send_message(chat_id, "Usage: `/scalp SOL` or `scalp SOL`")
+        
+        else:
+            # Optional: handle unknown commands if needed
+            pass
+            
+    except Exception as e:
+        log(f"Cmd error: {e}")
+        send_message(chat_id, f"❌ Error processing command: {e}")
 
 def poll_telegram():
     luid = 0; log("Polling...")
