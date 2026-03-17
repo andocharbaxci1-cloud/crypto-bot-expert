@@ -17,7 +17,8 @@ load_dotenv()
 
 # ================= ԳԼՈԲԱԼ ՓՈՓՈԽԱԿԱՆՆԵՐ =================
 BOT_START_TIME = datetime.now()
-COMMAND_EXECUTOR = ThreadPoolExecutor(max_workers=10) 
+COMMAND_EXECUTOR = ThreadPoolExecutor(max_workers=10)
+LOG_BUFFER = []
 # ================= ԿԱՐԳԱՎՈՐՈՒՄՆԵՐ =================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 # Չատի ID-ները ստորակետով բաժանված տեքստից վերածում ենք լիստի
@@ -151,6 +152,8 @@ def log(msg):
     t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     m = f"[{t}] {msg}"
     print(m)
+    LOG_BUFFER.append(m)
+    if len(LOG_BUFFER) > 100: LOG_BUFFER.pop(0)
     try:
         with open('bot.log', 'a') as f: f.write(m + "\n")
     except: pass
@@ -180,11 +183,7 @@ def health(): return {"status": "ok", "uptime": str(datetime.now() - BOT_START_T
 
 @app.route('/logs')
 def view_logs():
-    try:
-        with open('bot.log', 'r') as f:
-            lines = f.readlines()
-            return "<pre>" + "".join(lines[-50:]) + "</pre>"
-    except: return "No logs found."
+    return "<pre>" + "\n".join(LOG_BUFFER) + "</pre>"
 
 @app.route('/test-msg')
 def test_msg():
@@ -560,11 +559,14 @@ def run_bot_logic():
             time.sleep(30)
 
 def start_bot():
-    log("Starting background threads...")
-    threading.Thread(target=poll_telegram, daemon=True).start()
-    threading.Thread(target=monitor_active_trades, daemon=True).start()
-    threading.Thread(target=run_bot_logic, daemon=True).start()
-    broadcast("🤖 *CryptoBot EXPERT Online*\n/status, /analyze SOL, /scalp SOL")
+    try:
+        log(f"Starting background threads... Chat IDs: {len(TELEGRAM_CHAT_IDS)}, Token prefix: {str(TELEGRAM_BOT_TOKEN)[:5]}")
+        threading.Thread(target=poll_telegram, daemon=True).start()
+        threading.Thread(target=monitor_active_trades, daemon=True).start()
+        threading.Thread(target=run_bot_logic, daemon=True).start()
+        broadcast("🤖 *CryptoBot EXPERT Online*\n/status, /analyze SOL, /scalp SOL")
+    except Exception as e:
+        log(f"Startup error: {e}")
 
 # Միացնում ենք բոտը հենց մոդուլը բեռնվում է (Gunicorn-ի համար)
 if not os.environ.get("WERKZEUG_RUN_MAIN"): # Խուսափել կրկնակի միացումից Flask debug mode-ում
