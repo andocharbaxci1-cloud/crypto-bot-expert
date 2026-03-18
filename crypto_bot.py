@@ -183,7 +183,15 @@ def health(): return {"status": "ok", "uptime": str(datetime.now() - BOT_START_T
 
 @app.route('/logs')
 def view_logs():
-    return "<pre>" + "\n".join(LOG_BUFFER) + "</pre>"
+    try:
+        if os.path.exists('bot.log'):
+            with open('bot.log', 'r') as f:
+                lines = f.readlines()
+                return "<pre>" + "".join(lines[-100:]) + "</pre>"
+        else:
+            return "bot.log file not found."
+    except Exception as e:
+        return f"Error reading logs: {e}"
 
 @app.route('/test-msg')
 def test_msg():
