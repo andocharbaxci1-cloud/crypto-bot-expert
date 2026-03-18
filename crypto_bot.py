@@ -186,12 +186,14 @@ def health(): return {"status": "ok", "uptime": str(datetime.now() - BOT_START_T
 @app.route('/logs')
 def view_logs():
     try:
+        info = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        info += f"Files in CWD: {os.listdir('.')}\n"
         if os.path.exists('bot.log'):
             with open('bot.log', 'r') as f:
                 lines = f.readlines()
-                return "<pre>" + "".join(lines[-100:]) + "</pre>"
+                return "<pre>" + info + "".join(lines[-100:]) + "</pre>"
         else:
-            return "bot.log file not found."
+            return "<pre>" + info + "bot.log file not found.</pre>"
     except Exception as e:
         return f"Error reading logs: {e}"
 
