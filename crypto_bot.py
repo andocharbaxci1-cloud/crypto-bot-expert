@@ -151,12 +151,14 @@ def get_high_volume_node(df, lookback=100, bins=20):
 def log(msg):
     t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     m = f"[{t}] {msg}"
-    print(m)
-    LOG_BUFFER.append(m)
-    if len(LOG_BUFFER) > 100: LOG_BUFFER.pop(0)
+    print(m, flush=True)
     try:
-        with open('bot.log', 'a') as f: f.write(m + "\n")
+        with open('bot.log', 'a', encoding='utf-8') as f:
+            f.write(m + "\n")
+            f.flush()
     except: pass
+
+log("=== Bot Script Initialized ===")
 
 def send_message(chat_id, text):
     try:
